@@ -244,6 +244,33 @@ class ClanBot:
             logger.error(f"Error promoting user {user_id}: {e}")
             return False, f"Ошибка: {str(e)}"
     
+    def _format_time_remaining(self, iso_time):
+        """Форматирование оставшегося времени"""
+        try:
+            from datetime import datetime, timezone
+            end_time = datetime.fromisoformat(iso_time.replace('Z', '+00:00'))
+            now = datetime.now(timezone.utc)
+            
+            # Если end_time не имеет timezone, добавляем UTC
+            if end_time.tzinfo is None:
+                end_time = end_time.replace(tzinfo=timezone.utc)
+            
+            remaining = end_time - now
+            
+            if remaining.total_seconds() <= 0:
+                return "завершено"
+            
+            hours = int(remaining.total_seconds() // 3600)
+            minutes = int((remaining.total_seconds() % 3600) // 60)
+            
+            if hours > 0:
+                return f"{hours}ч {minutes}м"
+            else:
+                return f"{minutes}м"
+        except Exception as e:
+            logger.error(f"Error formatting time {iso_time}: {e}")
+            return "неизвестно"
+    
     # ============ MENUS & KEYBOARDS ============
     
     def get_group_welcome_keyboard(self):
@@ -287,15 +314,15 @@ class ClanBot:
         return InlineKeyboardMarkup(keyboard)
     
     def get_war_keyboard(self):
-        """Keyboard for war info"""
+        """Keyboard for war info (теперь для River Race)"""
         keyboard = [
             [
-                InlineKeyboardButton("🎯 Статус атак", callback_data="war_attacks"),
-                InlineKeyboardButton("📊 Детали", callback_data="war_details")
+                InlineKeyboardButton("🎯 Атаки игроков", callback_data="war_attacks"),
+                InlineKeyboardButton("📊 Рейтинг", callback_data="river_race_ranking")
             ],
             [
-                InlineKeyboardButton("👥 Участники", callback_data="war_participants"),
-                InlineKeyboardButton("🏆 Результат", callback_data="war_result")
+                InlineKeyboardButton("👥 Участники", callback_data="river_race_participants"),
+                InlineKeyboardButton("⏰ Таймер", callback_data="river_race_timer")
             ],
             [
                 InlineKeyboardButton("🔄 Обновить", callback_data="refresh_war"),
@@ -344,7 +371,7 @@ class ClanBot:
 Я - бот для управления кланом Clash Royale.
 
 *Основные команды:*
-/war - Текущая война
+/war - Текущая речная гонка
 /attacks - Статус атак
 /top - Топ игроков клана
 /inactive - Неактивные игроки
@@ -430,8 +457,8 @@ class ClanBot:
 /help - Эта справка
 
 *Для группового чата:*
-/war - Текущая война
-/attacks - Статус атак в войне
+/war - Текущая речная гонка
+/attacks - Статус атак в гонке
 /top - Топ игроков клана
 /inactive - Неактивные игроки
 /rules - Правила клана
@@ -1431,52 +1458,104 @@ class ClanBot:
         
         update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(keyboard))
     
-    # ============ WAR FUNCTIONS ============
+    # ============ WAR FUNCTIONS (РЕЧНАЯ ГОНКА) ============
     
     def war_info(self, update: Update, context: CallbackContext):
-        war_data = api.get_current_war(Config.CLAN_TAG)
+        """Информация о текущей речной гонке"""
+        # ИСПРАВЛЕНО: используем get_current_river_race вместо get_current_war
+        river_race = api.get_current_river_race(Config.CLAN_TAG)
         
-        if not war_data or war_data.get('state') == 'notInWar':
+        if not river_race:
+            update.message.reply_text("❌ Не удалось получить данные о речной гонке.")
+            return
+        
+        state = river_race.get('state', 'unknown')
+        period_type = river_race.get('periodType', 'UNKNOWN')
+        
+        # Логируем для отладки
+        logger.info(f"River Race State: {state}, Period Type: {period_type}")
+        
+        # Проверяем разные состояния
+        if state in ['CLAN_NOT_FOUND', 'ACCESS_DENIED']:
+            update.message.reply_text(f"❌ Ошибка: {state}")
+            return
+            
+        if state in ['FULL', 'ENDED', 'MATCHMAKING']:
+            # Не активная гонка
             keyboard = [
                 [InlineKeyboardButton("🔄 Проверить снова", callback_data="war_info")],
                 [InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]
             ]
             
+            status_text = {
+                'FULL': "Гонка заполнена",
+                'ENDED': "Гонка завершена",
+                'MATCHMAKING': "Идет подбор противников"
+            }.get(state, "Не активно")
+            
             update.message.reply_text(
-                "⚔️ *Текущая война*\n\n"
-                "Сейчас клан не участвует в войне.\n"
-                "Следующая война начнется в ближайшее время!",
+                f"⚔️ *РЕЧНАЯ ГОНКА*\n\n"
+                f"*Статус:* {status_text}\n"
+                f"Следующая гонка скоро начнется!",
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return
         
-        state = war_data.get('state', 'unknown')
-        clan = war_data.get('clan', {})
-        opponents = war_data.get('opponents', [{}])[0] if war_data.get('opponents') else {}
+        # Если мы здесь, значит клан в активной гонке
+        clan_data = river_race.get('clan', {})
+        clans_data = river_race.get('clans', [])
         
-        state_text = {
-            'collectionDay': '📦 День сбора карт',
-            'warDay': '⚔️ День битвы',
-            'ended': '🏁 Война завершена'
-        }.get(state, '❓ Неизвестно')
+        # Собираем информацию о противниках
+        opponents = [c for c in clans_data if c.get('tag') != clan_data.get('tag')]
         
-        text = f"⚔️ *ТЕКУЩАЯ ВОЙНА*\n\n"
-        text += f"*Статус:* {state_text}\n"
-        text += f"*Наш клан:* {clan.get('name', 'Неизвестно')}\n"
-        text += f"*Противник:* {opponents.get('name', 'Неизвестно')}\n\n"
+        # В зависимости от типа периода
+        if period_type == 'TRAINING':
+            text = f"🏋️ *ТРЕНИРОВОЧНЫЙ ДЕНЬ*\n\n"
+            text += f"*Наш клан:* {clan_data.get('name', 'Неизвестно')}\n"
+            text += f"*Слава:* {clan_data.get('fame', 0):,}\n"
+            text += f"*Очки ремонта:* {clan_data.get('repairPoints', 0):,}\n\n"
+            text += "🎯 *Задача:* Тренируйтесь и готовьтесь к битвам!\n"
+            
+        elif period_type == 'WAR_DAY':
+            text = f"⚔️ *ДЕНЬ БИТВЫ*\n\n"
+            text += f"*Наш клан:* {clan_data.get('name', 'Неизвестно')}\n"
+            text += f"*Слава:* {clan_data.get('fame', 0):,}\n"
+            text += f"*Очки ремонта:* {clan_data.get('repairPoints', 0):,}\n\n"
+            
+            # Показываем противников
+            if opponents:
+                text += "*Противники:*\n"
+                for i, opp in enumerate(opponents[:3], 1):
+                    text += f"{i}. {opp.get('name', 'Неизвестно')} - {opp.get('fame', 0):,} славы\n"
+            
+            text += "\n🎯 *Задача:* Набирайте славу и атакуйте противников!\n"
+            
+        elif period_type == 'COLOSSEUM':
+            text = f"🏟️ *КОЛИЗЕЙ*\n\n"
+            text += f"*Наш клан:* {clan_data.get('name', 'Неизвестно')}\n"
+            text += f"*Слава:* {clan_data.get('fame', 0):,}\n"
+            text += f"*Очки ремонта:* {clan_data.get('repairPoints', 0):,}\n\n"
+            text += "🔥 *Финальный этап!* Покажите всё, на что способны!\n"
+            
+        else:
+            text = f"⚔️ *РЕЧНАЯ ГОНКА*\n\n"
+            text += f"*Статус:* {state}\n"
+            text += f"*Тип периода:* {period_type}\n"
+            text += f"*Наш клан:* {clan_data.get('name', 'Неизвестно')}\n"
         
-        if state == 'collectionDay':
-            text += f"🏆 *Собрано карт:* {clan.get('cardsEarned', 0)}/{(clan.get('participants', 0) * 16)}\n"
-            text += f"👥 *Участников:* {clan.get('participants', 0)}\n"
-            text += "📦 *Задача:* Собирайте карты в войне!\n"
+        # Добавляем информацию о участниках
+        participants = clan_data.get('participants', [])
+        if participants:
+            active_players = sum(1 for p in participants if p.get('decksUsedToday', 0) > 0)
+            text += f"\n👥 *Активных игроков:* {active_players}/{len(participants)}"
         
-        elif state == 'warDay':
-            text += f"🏆 *Наш результат:* {clan.get('crowns', 0)}\n"
-            text += f"⚔️ *Противник:* {opponents.get('crowns', 0)}\n"
-            text += f"🎮 *Атаковало:* {clan.get('attacks', 0)}/{clan.get('participants', 0) * 2}\n\n"
-            text += "⚔️ *Задача:* Сделайте все атаки!\n"
-            text += "📊 Проверьте статус атак!"
+        # Добавляем таймеры
+        collection_end = river_race.get('collectionEndTime')
+        war_end = river_race.get('warEndTime')
+        
+        if collection_end:
+            text += f"\n⏰ *До конца сбора:* {self._format_time_remaining(collection_end)}"
         
         update.message.reply_text(
             text,
@@ -1485,61 +1564,70 @@ class ClanBot:
         )
     
     def war_attacks(self, update: Update, context: CallbackContext):
-        war_data = api.get_current_war(Config.CLAN_TAG)
+        """Статус атак в речной гонке"""
+        # ИСПРАВЛЕНО: используем get_current_river_race вместо get_current_war
+        river_race = api.get_current_river_race(Config.CLAN_TAG)
         
-        if not war_data or war_data.get('state') != 'warDay':
-            update.message.reply_text("Сейчас нет активной битвы в войне.")
+        if not river_race:
+            update.message.reply_text("❌ Не удалось получить данные о гонке.")
             return
         
-        participants = war_data.get('participants', [])
+        clan_data = river_race.get('clan', {})
+        participants = clan_data.get('participants', [])
         
         if not participants:
-            update.message.reply_text("Нет данных об участниках войны.")
+            update.message.reply_text("Нет данных об участниках гонки.")
             return
         
+        # Сортируем по активности
         sorted_participants = sorted(
             participants,
-            key=lambda x: (x.get('battlesPlayed', 0), x.get('wins', 0)),
+            key=lambda x: (x.get('fame', 0), x.get('decksUsedToday', 0)),
             reverse=True
         )
         
-        text = "🎯 *АТАКИ В ВОЙНЕ*\n\n"
+        text = "🎯 *АТАКИ В РЕЧНОЙ ГОНКЕ*\n\n"
         
-        completed = []
-        incomplete = []
+        active = []
+        inactive = []
         
         for participant in sorted_participants[:15]:
             name = participant.get('name', 'Неизвестно')
-            attacks = participant.get('battlesPlayed', 0)
-            wins = participant.get('wins', 0)
+            fame = participant.get('fame', 0)
+            decks_today = participant.get('decksUsedToday', 0)
+            total_decks = participant.get('decksUsed', 0)
+            boat_attacks = participant.get('boatAttacks', 0)
             
-            if attacks >= 2:
-                completed.append(f"✅ {name}: {wins}/{attacks} побед")
+            if decks_today > 0:
+                active.append(f"✅ {name}: {fame:,} славы ({decks_today}/4 атак сегодня)")
             else:
-                incomplete.append(f"❌ {name}: {attacks}/2 атак")
+                inactive.append(f"❌ {name}: {fame:,} славы (0 атак сегодня)")
         
-        if completed:
-            text += "*Завершили атаки:*\n"
-            text += "\n".join(completed[:10])
+        if active:
+            text += "*Активные сегодня:*\n"
+            text += "\n".join(active[:8])
             text += "\n\n"
         
-        if incomplete:
-            text += "*Не завершили атаки:*\n"
-            text += "\n".join(incomplete[:10])
+        if inactive:
+            text += "*Еще не атаковали:*\n"
+            text += "\n".join(inactive[:8])
         
-        if not incomplete:
-            text += "\n🎉 *ВСЕ ИГРОКИ ЗАВЕРШИЛИ АТАКИ!* 🎉"
+        if not inactive:
+            text += "\n🎉 *ВСЕ ИГРОКИ АТАКОВАЛИ СЕГОДНЯ!* 🎉"
         
-        total_attacks = sum(p.get('battlesPlayed', 0) for p in participants)
+        # Общая статистика
+        total_fame = sum(p.get('fame', 0) for p in participants)
+        total_decks_today = sum(p.get('decksUsedToday', 0) for p in participants)
         total_players = len(participants)
         
         text += f"\n\n📊 *Общая статистика:*\n"
-        text += f"• Игроков в войне: {total_players}\n"
-        text += f"• Всего атак: {total_attacks}/{total_players * 2}\n"
+        text += f"• Игроков в гонке: {total_players}\n"
+        text += f"• Всего славы: {total_fame:,}\n"
+        text += f"• Атак сегодня: {total_decks_today}/{total_players * 4}\n"
         
         keyboard = [
             [InlineKeyboardButton("🔄 Обновить", callback_data="war_attacks")],
-            [InlineKeyboardButton("⚔️ Инфо о войне", callback_data="war_info")],
+            [InlineKeyboardButton("⚔️ Инфо о гонке", callback_data="war_info")],
             [InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]
         ]
         
@@ -1823,35 +1911,54 @@ class ClanBot:
             update.message.reply_text("❌ Только админы могут отправлять напоминания.")
             return
         
-        war_data = api.get_current_war(Config.CLAN_TAG)
+        # ИСПРАВЛЕНО: используем get_current_river_race
+        river_race = api.get_current_river_race(Config.CLAN_TAG)
         
-        if not war_data or war_data.get('state') != 'warDay':
-            update.message.reply_text("Сейчас нет активной битвы в войне.")
+        if not river_race:
+            update.message.reply_text("❌ Не удалось получить данные о речной гонке.")
             return
         
-        reminder_text = """⚔️ *НАПОМИНАНИЕ О ВОЙНЕ!
+        state = river_race.get('state', 'unknown')
+        period_type = river_race.get('periodType', 'UNKNOWN')
+        
+        # Проверяем, активна ли гонка
+        if state in ['FULL', 'ENDED', 'MATCHMAKING', 'CLAN_NOT_FOUND', 'ACCESS_DENIED']:
+            update.message.reply_text("Сейчас нет активной речной гонки.")
+            return
+        
+        reminder_text = """⚔️ *НАПОМИНАНИЕ О РЕЧНОЙ ГОНКЕ!*
 
-Не забудьте сделать свои атаки в войне!
+Не забудьте сделать свои атаки в речной гонке!
 
-🎯 Цель: победа!
-🔥 Мотивация: Давайте покажем, на что способен наш клан!
+🎯 Цель: максимальная слава для клана!
+🔥 Мотивация: Давайте победим в гонке!
 
 *Не забудьте:* 
-1. Использовать все атаки
-2. Кооперироваться с сокланамими
-3. Достигать максимального урона
+1. Использовать все 4 атаки сегодня
+2. Атаковать лодки противников
+3. Набирать очки ремонта
 
 Удачи в битве! 🏆"""
         
-        participants = war_data.get('participants', [])
+        # Добавляем информацию о периоде
+        if period_type == 'TRAINING':
+            reminder_text += "\n\n🏋️ *Сейчас тренировочный день - готовьтесь к битвам!*"
+        elif period_type == 'WAR_DAY':
+            reminder_text += "\n\n⚔️ *Сейчас день битвы - атакуйте противников!*"
+        elif period_type == 'COLOSSEUM':
+            reminder_text += "\n\n🏟️ *Сейчас КОЛИЗЕЙ - финальный этап!*"
+        
+        # Добавляем список неактивных
+        clan_data = river_race.get('clan', {})
+        participants = clan_data.get('participants', [])
         if participants:
-            incomplete = [p for p in participants if p.get('battlesPlayed', 0) < 2]
-            if incomplete:
-                names = [p.get('name', 'Неизвестно') for p in incomplete[:5]]
-                reminder_text += f"\n\n🎯 *Еще не атаковали:*\n"
+            inactive = [p for p in participants if p.get('decksUsedToday', 0) == 0]
+            if inactive:
+                names = [p.get('name', 'Неизвестно') for p in inactive[:5]]
+                reminder_text += f"\n\n🎯 *Еще не атаковали сегодня:*\n"
                 reminder_text += "\n".join([f"• {name}" for name in names])
-                if len(incomplete) > 5:
-                    reminder_text += f"\n• ... и еще {len(incomplete) - 5} игроков"
+                if len(inactive) > 5:
+                    reminder_text += f"\n• ... и еще {len(inactive) - 5} игроков"
         
         update.message.reply_text(reminder_text, parse_mode=ParseMode.MARKDOWN)
     
@@ -1999,12 +2106,12 @@ class ClanBot:
 
 1. 🎮 *Активность*
    - Минимум 3 дня в неделю
-   - Участие в войнах обязательно
+   - Участие в речных гонках обязательно
 
-2. ⚔️ *Войны*
-   - Делать все атаки в день битвы
+2. ⚔️ *Речные гонки*
+   - Делать все 4 атаки в день
    - Кооперироваться с сокланамими
-   - Использовать сильные колоды
+   - Атаковать лодки противников
 
 3. 🎁 *Донаты*
    - Минимум 100 донатов в неделю
@@ -2250,7 +2357,7 @@ class ClanBot:
                 welcome_text += "2. Ваша роль автоматически обновится\n\n"
             
             welcome_text += "\n🏰 *Основные команды:*\n"
-            welcome_text += "/war - Текущая война\n"
+            welcome_text += "/war - Речная гонка\n"
             welcome_text += "/clan - Информация о клане\n"
             welcome_text += "/rules - Правила клана\n"
             
@@ -2328,16 +2435,22 @@ class ClanBot:
         elif data == 'clan_stats':
             query.edit_message_text("📊 *Статистика клана*\n\nЭта функция в разработке...", parse_mode=ParseMode.MARKDOWN)
         
-        # Война
+        # Война (River Race)
         elif data == 'war_info':
             self.war_info_callback(update, context)
         elif data == 'war_attacks':
             self.war_attacks_callback(update, context)
         elif data == 'refresh_war':
-            query.edit_message_text("🔄 Обновляю информацию о войне...")
+            query.edit_message_text("🔄 Обновляю информацию о гонке...")
             self.war_info_callback(update, context)
         elif data == 'remind_war':
             self.remind_war_callback(update, context)
+        elif data == 'river_race_ranking':
+            query.edit_message_text("📊 *РЕЙТИНГ КЛАНОВ*\n\nЭта функция в разработке...", parse_mode=ParseMode.MARKDOWN)
+        elif data == 'river_race_participants':
+            query.edit_message_text("👥 *УЧАСТНИКИ*\n\nЭта функция в разработке...", parse_mode=ParseMode.MARKDOWN)
+        elif data == 'river_race_timer':
+            query.edit_message_text("⏰ *ТАЙМЕРЫ*\n\nЭта функция в разработке...", parse_mode=ParseMode.MARKDOWN)
         
         # Топы
         elif data == 'top_players':
@@ -2997,6 +3110,36 @@ class ClanBot:
         # Вызываем оригинальный метод
         self.chat_settings(fake_update, context)
     
+    def remind_war_callback(self, update: Update, context: CallbackContext):
+        """Callback версия remind_war"""
+        query = update.callback_query
+        query.answer()
+        
+        # Создаем искусственный update с сообщением
+        from telegram import Message, Chat, User
+        
+        fake_update = Update(
+            update_id=update.update_id,
+            message=Message(
+                message_id=query.message.message_id,
+                date=query.message.date,
+                chat=Chat(
+                    id=query.message.chat.id,
+                    type=query.message.chat.type,
+                    title=query.message.chat.title if hasattr(query.message.chat, 'title') else None
+                ),
+                from_user=User(
+                    id=query.from_user.id,
+                    first_name=query.from_user.first_name,
+                    is_bot=query.from_user.is_bot,
+                    username=query.from_user.username
+                )
+            )
+        )
+        
+        # Вызываем оригинальный метод
+        self.remind_war(fake_update, context)
+    
     # ============ SCHEDULER ============
     
     def setup_scheduler(self):
@@ -3037,17 +3180,25 @@ class ClanBot:
         logger.info("Scheduler started")
     
     def auto_war_reminder(self):
-        """Auto war reminder"""
+        """Auto war reminder for river race"""
         if not Config.WAR_REMINDER_ENABLED or not Config.GROUP_CHAT_ID:
             return
         
-        war_data = api.get_current_war(Config.CLAN_TAG)
-        if not war_data or war_data.get('state') != 'warDay':
+        # ИСПРАВЛЕНО: используем get_current_river_race
+        river_race = api.get_current_river_race(Config.CLAN_TAG)
+        
+        if not river_race:
             return
         
-        reminder_text = """⚔️ *АВТОМАТИЧЕСКОЕ НАПОМИНАНИЕ О ВОЙНЕ!
+        state = river_race.get('state', 'unknown')
+        
+        # Проверяем, активна ли гонка
+        if state in ['FULL', 'ENDED', 'MATCHMAKING', 'CLAN_NOT_FOUND', 'ACCESS_DENIED']:
+            return
+        
+        reminder_text = """⚔️ *АВТОМАТИЧЕСКОЕ НАПОМИНАНИЕ О РЕЧНОЙ ГОНКЕ!*
 
-Не забудьте сделать свои атаки в войне!
+Не забудьте сделать свои атаки сегодня!
 
 Удачи в битве! 🏆"""
         
@@ -3077,12 +3228,25 @@ class ClanBot:
             report += f"🏆 Трофеи клана: {clan_data.get('clanScore'):,}\n"
             report += f"⚔️ Трофеи войн: {clan_data.get('clanWarTrophies', 0):,}\n\n"
             
-            war_data = api.get_current_war(Config.CLAN_TAG)
-            if war_data and war_data.get('state') == 'warDay':
-                report += "⚔️ *СЕГОДНЯ ДЕНЬ БИТВЫ!*\n"
-                report += "Не забудьте сделать свои атаки! 💪"
+            # Проверяем речную гонку
+            river_race = api.get_current_river_race(Config.CLAN_TAG)
+            if river_race:
+                state = river_race.get('state', 'unknown')
+                period_type = river_race.get('periodType', 'UNKNOWN')
+                
+                if state not in ['FULL', 'ENDED', 'MATCHMAKING']:
+                    if period_type == 'WAR_DAY':
+                        report += "⚔️ *СЕГОДНЯ ДЕНЬ БИТВЫ В РЕЧНОЙ ГОНКЕ!*\n"
+                        report += "Не забудьте сделать свои атаки! 💪"
+                    elif period_type == 'COLOSSEUM':
+                        report += "🏟️ *СЕГОДНЯ КОЛИЗЕЙ!*\n"
+                        report += "Финальный этап - покажите всё, на что способны! 💪"
+                    else:
+                        report += "🎮 Участвуйте в речных гонках, донируйте карты, развивайтесь! 💪"
+                else:
+                    report += "🎮 Участвуйте в речных гонках, донируйте карты, развивайтесь! 💪"
             else:
-                report += "🎮 Участвуйте в войнах, донируйте карты, развивайтесь! 💪"
+                report += "🎮 Участвуйте в речных гонках, донируйте карты, развивайтесь! 💪"
             
             self.updater.bot.send_message(
                 chat_id=Config.GROUP_CHAT_ID,

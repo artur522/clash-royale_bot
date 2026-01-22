@@ -178,3 +178,17 @@ class ClashRoyaleAPI:
             text += f"• Роль: {clan.get('role')}\n"
         
         return text
+    
+    def get_current_river_race(self, clan_tag):
+        """Получить текущую речную гонку"""
+        encoded_tag = self._encode_tag(clan_tag)
+        url = f"{self.base_url}/clans/{encoded_tag}/currentriverrace"
+        
+        try:
+            response = requests.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                return response.json()
+            return None
+        except Exception as e:
+            logger.error(f"Request error for river race {clan_tag}: {e}")
+            return None
