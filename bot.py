@@ -3227,12 +3227,10 @@ class ClanBot:
             id='auto_role_check'
         )
 
-        # War Day alert every 30 minutes
+        # War Day alert once per day at 18:00
         scheduler.add_job(
             self.send_war_day_alert,
-            'interval',
-            minutes=30,
-            timezone=timezone,
+            CronTrigger(hour=18, minute=0, timezone=timezone),
             id='war_day_alert'
         )
 
