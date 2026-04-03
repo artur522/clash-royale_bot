@@ -18,6 +18,8 @@ class Keyboards:
             ['⚔️ Война', '🎯 Атаки'],
             ['👥 Топ игроков', '⚠️ Неактивные'],
             ['🏰 Информация', '📜 Правила'],
+            ['🏞️ Речная гонка', '📜 История войн'],
+            ['🏆 Турниры', '🏅 Рейтинги'],
             ['❓ Помощь', '📝 Регистрация']
         ]
         return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -89,7 +91,7 @@ class Keyboards:
             ],
             [
                 InlineKeyboardButton("🔔 Напомнить о войне", callback_data="admin_remind"),
-                InlineKeyboardButton("📊 Отчет", callback_data="admin_report")
+                InlineKeyboardButton("🏞️ Проверить речную гонку", callback_data="admin_river_check")
             ],
             [
                 InlineKeyboardButton("⚙️ Настройки чата", callback_data="admin_settings"),

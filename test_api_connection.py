@@ -102,6 +102,70 @@ def test_api():
         except Exception as e:
             print(f"   ❌ Ошибка запроса: {e}")
     
+    # Тест 4: Получить историю войн клана
+    if clan_tag and clan_tag != "#YOUR_CLAN_TAG":
+        print(f"\n4. 📜 Получаю историю войн клана {clan_tag}...")
+        try:
+            encoded_tag = requests.utils.quote(clan_tag)
+            response = requests.get(
+                f"{base_url}/clans/{encoded_tag}/warlog?limit=3",
+                headers=headers,
+                timeout=15
+            )
+            print(f"   Статус: {response.status_code}")
+            
+            if response.status_code == 200:
+                war_data = response.json()
+                print(f"   ✅ Успех! Записей о войнах: {len(war_data.get('items', []))}")
+            else:
+                print(f"   ❌ Ошибка: {response.text[:200]}")
+                
+        except Exception as e:
+            print(f"   ❌ Ошибка запроса: {e}")
+    
+    # Тест 5: Поиск турниров
+    print(f"\n5. 🏆 Ищу турниры...")
+    try:
+        response = requests.get(
+            f"{base_url}/tournaments?name=global&limit=3",
+            headers=headers,
+            timeout=15
+        )
+        print(f"   Статус: {response.status_code}")
+        
+        if response.status_code == 200:
+            tournament_data = response.json()
+            print(f"   ✅ Успех! Найдено турниров: {len(tournament_data.get('items', []))}")
+        else:
+            print(f"   ❌ Ошибка: {response.text[:200]}")
+            
+    except Exception as e:
+        print(f"   ❌ Ошибка запроса: {e}")
+    
+    # Тест 6: Получить речную гонку
+    if clan_tag and clan_tag != "#YOUR_CLAN_TAG":
+        print(f"\n6. 🏞️ Получаю речную гонку клана {clan_tag}...")
+        try:
+            encoded_tag = requests.utils.quote(clan_tag)
+            response = requests.get(
+                f"{base_url}/clans/{encoded_tag}/currentriverrace",
+                headers=headers,
+                timeout=15
+            )
+            print(f"   Статус: {response.status_code}")
+            
+            if response.status_code == 200:
+                river_data = response.json()
+                clan_river = river_data.get('clan', {})
+                participants = clan_river.get('participants', [])
+                print(f"   ✅ Успех! Клан: {clan_river.get('name')}, очки: {clan_river.get('clanScore')}")
+                print(f"   👥 Участников: {len(participants)}")
+            else:
+                print(f"   ❌ Ошибка: {response.text[:200]}")
+                
+        except Exception as e:
+            print(f"   ❌ Ошибка запроса: {e}")
+    
     print("\n" + "="*50)
     print("🎉 Все тесты завершены! API работает корректно.")
     print("Теперь можно запускать бота.")
