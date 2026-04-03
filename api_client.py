@@ -224,7 +224,24 @@ class ClashRoyaleAPI:
             }
             role_display = role_names.get(player_role, player_role or 'Неизвестно')
             text += f"• Роль: {role_display}\n"
-        
+
+            # Получаем информацию о донациях
+            try:
+                members = self.get_clan_members(clan.get('tag'))
+                if members:
+                    for member in members:
+                        if member.get('tag') == player_data.get('tag'):
+                            donations = member.get('donations', 0)
+                            donations_received = member.get('donationsReceived', 0)
+                            balance = donations - donations_received
+                            text += f"\n{emoji['donate']} *Статистика донаций (текущий период):*\n"
+                            text += f"• Пожертвовано карт: {donations:,}\n"
+                            text += f"• Получено карт: {donations_received:,}\n"
+                            text += f"• Баланс: {balance:+,}\n"
+                            break
+            except:
+                pass
+
         return text
     
     def get_current_river_race(self, clan_tag):
