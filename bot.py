@@ -464,41 +464,26 @@ class ClanBot:
 /war - Текущая война
 /attacks - Статус атак в войне
 /top - Топ игроков клана
-/inactive - Неактивные игроки
-/rules - Правила клана
 /warlog - История войн клана
+/warstats - Статистика войны с рейтингом 🆕
 /river - Текущая речная гонка
 /tournaments <имя> - Поиск турниров
-/rankings - Глобальные рейтинги кланов
 
-*Управление никнеймом:*
-/nickname - Обновить свой никнейм
-/update_nicknames - Обновить все никнеймы (админы)
-/nickname_format - Изменить формат (админы)
-/sync_roles - Синхронизировать роли (админы)
+*Личная статистика:*
+/battles - История боев
+/members - Список участников клана
+/donations - Статистика донатов
+/donations_full - Полная таблица донатов клана 🆕
 
 *Для админов:*
 /admin - Панель администратора
-/mass_promote - Назначить роли всем пользователям
-/check_missing_roles - Проверить отсутствующие роли
-/fix_user - Исправить роль конкретного пользователя
-/kick #тег - Исключить игрока
-/warn #тег - Предупредить игрока
-/remind - Напомнить о войне
-/settings - Настройки чата
-/river_check - Ручная проверка речной гонки
+/river_check - Ручная проверка речной гонки"""
 
-*Дополнительно:*
-/chests - Ваши сундуки
-/battles - История боев
-/members - Список участников
-/donations - Статистика донатов"""
-        
         keyboard = [
             [InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")],
             [InlineKeyboardButton("📱 Кнопки управления", callback_data="show_buttons")]
         ]
-        
+
         update.message.reply_text(
             help_text,
             reply_markup=InlineKeyboardMarkup(keyboard)
