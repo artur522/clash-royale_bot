@@ -209,7 +209,16 @@ class ClashRoyaleAPI:
         if 'currentDeck' in player_data:
             text += f"\n{emoji['cards']} *Текущая колода:*\n"
             for card in player_data['currentDeck']:
-                text += f"• {card.get('name')} (Ур. {card.get('level')})\n"
+                rarity = card.get('rarity', 'common').lower()
+                level_map = {
+                    'common': 0,      # Common 1 = уровень 1
+                    'rare': 2,        # Rare 1 = уровень 3
+                    'epic': 5,        # Epic 1 = уровень 6
+                    'legendary': 8,   # Legendary 1 = уровень 9
+                    'champion': 10    # Champion 1 = уровень 11
+                }
+                actual_level = card.get('level', 1) + level_map.get(rarity, 0)
+                text += f"• {card.get('name')} (Ур. {actual_level})\n"
         
         if 'clan' in player_data and player_data['clan']:
             clan = player_data['clan']
