@@ -74,33 +74,23 @@ class ClanBot:
         self.dispatcher.add_handler(CommandHandler("war", self.war_info))
         self.dispatcher.add_handler(CommandHandler("attacks", self.war_attacks))
         self.dispatcher.add_handler(CommandHandler("top", self.top_players))
-        self.dispatcher.add_handler(CommandHandler("inactive", self.check_inactive))
-        self.dispatcher.add_handler(CommandHandler("rules", self.show_rules))
-        
-        # Nickname commands
-        self.dispatcher.add_handler(CommandHandler("nickname", self.update_nickname))
-        self.dispatcher.add_handler(CommandHandler("update_nicknames", self.update_all_nicknames))
-        self.dispatcher.add_handler(CommandHandler("nickname_format", self.set_nickname_format))
-        self.dispatcher.add_handler(CommandHandler("sync_roles", self.sync_roles))
         self.dispatcher.add_handler(CommandHandler("sync_me", self.sync_me))
-        
-        # Role assignment commands
-        self.dispatcher.add_handler(CommandHandler("mass_promote", self.mass_promote_users))
-        self.dispatcher.add_handler(CommandHandler("fix_user", self.fix_user_role, pass_args=True))
-        self.dispatcher.add_handler(CommandHandler("check_missing_roles", self.check_missing_roles))
-        
+
         # Admin commands
         self.dispatcher.add_handler(CommandHandler("admin", self.admin_panel))
-        self.dispatcher.add_handler(CommandHandler("kick", self.kick_player, pass_args=True))
-        self.dispatcher.add_handler(CommandHandler("warn", self.warn_player, pass_args=True))
-        self.dispatcher.add_handler(CommandHandler("remind", self.remind_war))
-        self.dispatcher.add_handler(CommandHandler("settings", self.chat_settings))
-        
+
         # Utility commands
-        self.dispatcher.add_handler(CommandHandler("chests", self.show_chests))
         self.dispatcher.add_handler(CommandHandler("battles", self.show_battles))
         self.dispatcher.add_handler(CommandHandler("members", self.show_members))
         self.dispatcher.add_handler(CommandHandler("donations", self.show_donations))
+
+        # War API commands
+        self.dispatcher.add_handler(CommandHandler("warlog", self.show_war_log))
+        self.dispatcher.add_handler(CommandHandler("river", self.show_river_race))
+        self.dispatcher.add_handler(CommandHandler("tournaments", self.search_tournaments, pass_args=True))
+        self.dispatcher.add_handler(CommandHandler("river_check", self.manual_river_check))
+        self.dispatcher.add_handler(CommandHandler("donations_full", self.show_donations_full))
+        self.dispatcher.add_handler(CommandHandler("warstats", self.show_war_stats))
         
         # Conversation handler (detailed registration)
         conv_handler = ConversationHandler(
@@ -122,6 +112,21 @@ class ClanBot:
         # Message handlers
         self.dispatcher.add_handler(MessageHandler(Filters.status_update.new_chat_members, self.welcome_new_member))
         self.dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, self.handle_text_message))
+    
+    def setup_scheduler(self):
+        """Setup background scheduler for automated tasks"""
+        # Проверка речной гонки каждые 30 минут
+        scheduler.add_job(
+            self.check_river_race_period,
+            'interval',
+            minutes=30,
+            id='river_race_check',
+            replace_existing=True
+        )
+        
+        # Запуск планировщика
+        scheduler.start()
+        logger.info("Scheduler started with river race monitoring")
     
     # ============ UTILITY METHODS ============
     
@@ -457,11 +462,15 @@ class ClanBot:
 /help - Эта справка
 
 *Для группового чата:*
-/war - Текущая речная гонка
-/attacks - Статус атак в гонке
+/war - Текущая война
+/attacks - Статус атак в войне
 /top - Топ игроков клана
 /inactive - Неактивные игроки
 /rules - Правила клана
+/warlog - История войн клана
+/river - Текущая речная гонка
+/tournaments <имя> - Поиск турниров
+/rankings - Глобальные рейтинги кланов
 
 *Управление никнеймом:*
 /nickname - Обновить свой никнейм
@@ -478,6 +487,7 @@ class ClanBot:
 /warn #тег - Предупредить игрока
 /remind - Напомнить о войне
 /settings - Настройки чата
+/river_check - Ручная проверка речной гонки
 
 *Дополнительно:*
 /chests - Ваши сундуки
@@ -492,7 +502,6 @@ class ClanBot:
         
         update.message.reply_text(
             help_text,
-            parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
@@ -2501,6 +2510,8 @@ class ClanBot:
                 self.chat_settings_callback(update, context)
             elif admin_action == 'stats':
                 self.admin_panel_callback(update, context)
+            elif admin_action == 'river_check':
+                self.manual_river_check_callback(update, context)
         
         # Регистрация
         elif data == 'find_tag_help':
@@ -2593,7 +2604,8 @@ class ClanBot:
                     first_name=query.from_user.first_name,
                     is_bot=query.from_user.is_bot,
                     username=query.from_user.username
-                )
+                ),
+                bot=self.updater.bot
             )
         )
         
@@ -2623,7 +2635,8 @@ class ClanBot:
                     first_name=query.from_user.first_name,
                     is_bot=query.from_user.is_bot,
                     username=query.from_user.username
-                )
+                ),
+                bot=self.updater.bot
             )
         )
         
@@ -2653,7 +2666,8 @@ class ClanBot:
                     first_name=query.from_user.first_name,
                     is_bot=query.from_user.is_bot,
                     username=query.from_user.username
-                )
+                ),
+                bot=self.updater.bot
             )
         )
         
@@ -2683,7 +2697,8 @@ class ClanBot:
                     first_name=query.from_user.first_name,
                     is_bot=query.from_user.is_bot,
                     username=query.from_user.username
-                )
+                ),
+                bot=self.updater.bot
             )
         )
         
@@ -2713,7 +2728,8 @@ class ClanBot:
                     first_name=query.from_user.first_name,
                     is_bot=query.from_user.is_bot,
                     username=query.from_user.username
-                )
+                ),
+                bot=self.updater.bot
             )
         )
         
@@ -2743,7 +2759,8 @@ class ClanBot:
                     first_name=query.from_user.first_name,
                     is_bot=query.from_user.is_bot,
                     username=query.from_user.username
-                )
+                ),
+                bot=self.updater.bot
             )
         )
         
@@ -3073,7 +3090,8 @@ class ClanBot:
                     first_name=query.from_user.first_name,
                     is_bot=query.from_user.is_bot,
                     username=query.from_user.username
-                )
+                ),
+                bot=self.updater.bot
             )
         )
         
@@ -3103,7 +3121,8 @@ class ClanBot:
                     first_name=query.from_user.first_name,
                     is_bot=query.from_user.is_bot,
                     username=query.from_user.username
-                )
+                ),
+                bot=self.updater.bot
             )
         )
         
@@ -3133,12 +3152,44 @@ class ClanBot:
                     first_name=query.from_user.first_name,
                     is_bot=query.from_user.is_bot,
                     username=query.from_user.username
-                )
+                ),
+                bot=self.updater.bot
             )
         )
         
         # Вызываем оригинальный метод
         self.remind_war(fake_update, context)
+    
+    def manual_river_check_callback(self, update: Update, context: CallbackContext):
+        """Callback версия manual_river_check"""
+        query = update.callback_query
+        query.answer()
+        
+        # Создаем искусственный update с сообщением
+        from telegram import Message, Chat, User
+        
+        fake_update = Update(
+            update_id=update.update_id,
+            message=Message(
+                message_id=query.message.message_id,
+                date=query.message.date,
+                chat=Chat(
+                    id=query.message.chat.id,
+                    type=query.message.chat.type,
+                    title=query.message.chat.title if hasattr(query.message.chat, 'title') else None
+                ),
+                from_user=User(
+                    id=query.from_user.id,
+                    first_name=query.from_user.first_name,
+                    is_bot=query.from_user.is_bot,
+                    username=query.from_user.username
+                ),
+                bot=self.updater.bot
+            )
+        )
+        
+        # Вызываем оригинальный метод
+        self.manual_river_check(fake_update, context)
     
     # ============ SCHEDULER ============
     
@@ -3359,16 +3410,381 @@ class ClanBot:
         except Exception as e:
             logger.error(f"Auto role check failed: {e}")
     
+    # ============ NEW API COMMANDS ============
+    
+    def show_war_log(self, update: Update, context: CallbackContext):
+        """Показать историю войн клана"""
+        if not self.is_group_chat(update):
+            update.message.reply_text("❌ Эта команда доступна только в групповом чате.")
+            return
+        
+        war_log = api.get_war_log(Config.CLAN_TAG, limit=5)
+        if not war_log:
+            update.message.reply_text("❌ Не удалось получить историю войн.")
+            return
+        
+        text = "📜 *История войн клана:*\n\n"
+        for entry in war_log.get('items', []):
+            season = entry.get('seasonId', 'N/A')
+            text += f"🏆 Сезон {season}\n"
+            for standing in entry.get('standings', []):
+                clan = standing.get('clan', {})
+                if clan.get('tag') == Config.CLAN_TAG:
+                    text += f"  • Место: {standing.get('rank', 'N/A')}\n"
+                    text += f"  • Трофеи: {standing.get('trophyChange', 0)}\n"
+                    break
+            text += "\n"
+        
+        update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+    
+    def show_river_race(self, update: Update, context: CallbackContext):
+        """Показать текущую речную гонку"""
+        if not self.is_group_chat(update):
+            update.message.reply_text("❌ Эта команда доступна только в групповом чате.")
+            return
+        
+        race = api.get_current_river_race(Config.CLAN_TAG)
+        if not race:
+            update.message.reply_text("❌ Не удалось получить данные о речной гонке.")
+            return
+        
+        clan_data = race.get('clan', {})
+        participants = clan_data.get('participants', [])
+        clans = race.get('clans', [])
+        
+        text = f"🏞️ *Речная гонка: {clan_data.get('name', 'N/A')}*\n\n"
+        text += f"🏆 Очки клана: {clan_data.get('clanScore', 0)}\n"
+        text += f"💎 Фейм: {clan_data.get('fame', 0)}\n"
+        text += f"🔧 Ремонт: {clan_data.get('repairPoints', 0)}\n\n"
+        
+        # Участники клана
+        text += "👥 *Участники клана:*\n"
+        for p in participants[:10]:  # Ограничим до 10 для читаемости
+            text += f"• {p.get('name', 'N/A')}: {p.get('boatAttacks', 0)} атак, {p.get('fame', 0)} фейм\n"
+        if len(participants) > 10:
+            text += f"... и ещё {len(participants) - 10} участников\n"
+        text += "\n"
+        
+        # Другие кланы
+        text += "🏰 *Другие кланы в гонке:*\n"
+        for c in clans[:5]:  # Топ 5 других кланов
+            if c.get('tag') != Config.CLAN_TAG:
+                text += f"• {c.get('name', 'N/A')}: {c.get('clanScore', 0)} очков, {c.get('fame', 0)} фейм\n"
+        
+        update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+    
+    def search_tournaments(self, update: Update, context: CallbackContext):
+        """Поиск турниров"""
+        name = ' '.join(context.args) if context.args else None
+        tournaments = api.search_tournaments(name=name, limit=5)
+        if not tournaments:
+            update.message.reply_text("❌ Не удалось найти турниры.")
+            return
+        
+        text = "🏆 *Найденные турниры:*\n\n"
+        for t in tournaments.get('items', []):
+            text += f"• {t.get('name', 'N/A')} (#{t.get('tag', 'N/A')})\n"
+            text += f"  Статус: {t.get('status', 'N/A')}\n\n"
+        
+        update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+
+    # ============ RIVER RACE NOTIFICATIONS ============
+    
+    def check_river_race_period(self):
+        """Проверка периода речной гонки и отправка уведомлений"""
+        try:
+            race = api.get_current_river_race(Config.CLAN_TAG)
+            if not race:
+                return
+            
+            period_type = race.get('periodType', '')
+            period_index = race.get('periodIndex', 0)
+            section_index = race.get('sectionIndex', 0)
+            
+            # Проверяем, изменился ли период
+            last_period = getattr(self, 'last_river_period', None)
+            current_period = f"{period_type}_{period_index}_{section_index}"
+            
+            if last_period != current_period:
+                self.last_river_period = current_period
+                self.send_river_notification(race, period_type)
+            
+            # Проверяем невыполненные атаки (каждые 2 часа)
+            now = datetime.now()
+            last_attack_check = getattr(self, 'last_attack_check', None)
+            if not last_attack_check or (now - last_attack_check).seconds > 7200:  # 2 часа
+                self.last_attack_check = now
+                self.check_missing_attacks(race)
+                
+        except Exception as e:
+            logger.error(f"Error checking river race period: {e}")
+    
+    def send_river_notification(self, race, period_type):
+        """Отправка уведомления о новом периоде"""
+        try:
+            if not Config.GROUP_CHAT_ID:
+                return
+            
+            clan_data = race.get('clan', {})
+            period_messages = {
+                'TRAINING': "🏋️ *Дни тренировки начались!*\n\nПодготовьтесь к речной гонке. Практикуйте атаки и стройте лодки.",
+                'WAR_DAY': "⚔️ *Дни сражений начались!*\n\nВремя атаковать! Каждый участник должен сделать максимум атак.",
+                'COLOSSEUM': "🏟️ *Колизей открыт!*\n\nСпециальные бои в Колизее. Покажите свою силу!"
+            }
+            
+            message = period_messages.get(period_type, f"🏞️ *Новый период речной гонки: {period_type}*")
+            message += f"\n\n🏆 Клан: {clan_data.get('name', 'N/A')}\n💎 Фейм: {clan_data.get('fame', 0)}"
+            
+            self.updater.bot.send_message(
+                chat_id=Config.GROUP_CHAT_ID,
+                text=message,
+                parse_mode=ParseMode.MARKDOWN
+            )
+            
+        except Exception as e:
+            logger.error(f"Error sending river notification: {e}")
+    
+    def check_missing_attacks(self, race):
+        """Проверка игроков без атак"""
+        try:
+            if not Config.GROUP_CHAT_ID:
+                return
+            
+            clan_data = race.get('clan', {})
+            participants = clan_data.get('participants', [])
+            
+            # Ожидаемое количество атак (зависит от периода, но для простоты 4)
+            expected_attacks = 4
+            missing_players = []
+            
+            for p in participants:
+                attacks = p.get('boatAttacks', 0)
+                if attacks < expected_attacks:
+                    missing_players.append({
+                        'name': p.get('name', 'N/A'),
+                        'attacks': attacks,
+                        'missing': expected_attacks - attacks
+                    })
+            
+            if missing_players:
+                message = "⚠️ *Игроки без полных атак в речной гонке:*\n\n"
+                for player in missing_players[:10]:  # Топ 10
+                    message += f"• {player['name']}: {player['attacks']}/{expected_attacks} атак (не хватает {player['missing']})\n"
+                
+                if len(missing_players) > 10:
+                    message += f"\n... и ещё {len(missing_players) - 10} игроков"
+                
+                self.updater.bot.send_message(
+                    chat_id=Config.GROUP_CHAT_ID,
+                    text=message,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                
+        except Exception as e:
+            logger.error(f"Error checking missing attacks: {e}")
+    
+    def manual_river_check(self, update, context):
+        """Ручная проверка речной гонки"""
+        try:
+            if not self.is_admin(update.effective_user.id):
+                update.message.reply_text("❌ Эта команда доступна только админам.")
+                return
+            
+            update.message.reply_text("🔍 Проверяю речную гонку...")
+
+            # Получаем данные речной гонки
+            race = api.get_river_race_log(Config.CLAN_TAG)
+            if not race:
+                update.message.reply_text("❌ Не удалось получить данные речной гонки.")
+                return
+            
+            # Проверяем период
+            self.check_river_race_period(race)
+            
+            # Проверяем пропущенные атаки
+            self.check_missing_attacks(race)
+            
+            update.message.reply_text("✅ Проверка завершена. Уведомления отправлены в групповой чат.")
+            
+        except Exception as e:
+            logger.error(f"Error in manual river check: {e}")
+            update.message.reply_text("❌ Ошибка при проверке речной гонки.")
+
+    def send_war_day_alert(self):
+        """Отправить alert когда началась War Day"""
+        try:
+            war = api.get_current_war(Config.CLAN_TAG)
+
+            if not war or war.get('state') != 'WAR_DAY':
+                return
+
+            clan_members = api.get_clan_members(Config.CLAN_TAG)
+            alert = api.format_war_day_alert(war, clan_members)
+
+            if not alert:
+                return
+
+            # Формируем текст
+            text = "⚔️ *WAR DAY НАЧАЛСЯ!*\n\n"
+
+            # Время
+            try:
+                from dateutil import parser as date_parser
+                end_time = date_parser.isoparse(alert['time_remaining'])
+                remaining = (end_time - datetime.now(pytz.UTC)).total_seconds()
+                if remaining > 0:
+                    hours = int(remaining // 3600)
+                    minutes = int((remaining % 3600) // 60)
+                    text += f"⏱️ Осталось: {hours}ч {minutes}м\n\n"
+            except:
+                pass
+
+            # Прогресс
+            text += "📊 *ПРОГРЕСС:*\n"
+            text += f"  • Место: {alert['place']} из 8 кланов\n"
+            text += f"  • Наши очки: {alert['clan_score']}\n"
+            text += f"  • Участников: {alert['participants']}\n\n"
+
+            # НЕ АТАКОВАЛИ (0 боев)
+            if alert['not_attacked']:
+                names = [p.get('name', '?') for p in alert['not_attacked'][:5]]
+                text += f"⚠️ *НЕ АТАКОВАЛИ В КВ* (0 боев):\n"
+                text += f"  {' '.join(names)}\n\n"
+
+            # НЕ ДОНАТЯТ
+            if alert['not_donating']:
+                names = [m.get('name', '?') for m in alert['not_donating'][:5]]
+                text += f"💰 *НЕ ДОНАТЯТ КАРТЫ:*\n"
+                text += f"  {' '.join(names)}\n\n"
+
+            text += "💪 Давайте на finish!"
+
+            self.dispatcher.bot.send_message(
+                chat_id=Config.GROUP_CHAT_ID,
+                text=text,
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            logger.error(f"Error in send_war_day_alert: {e}")
+
+    def show_donations_full(self, update: Update, context: CallbackContext):
+        """Показать полную статистику донатов всех игроков"""
+        try:
+            donations_data = api.format_donations_full(Config.CLAN_TAG)
+
+            if not donations_data:
+                update.message.reply_text("❌ Не удалось получить статистику")
+                return
+
+            # Если много игроков (> 20), отправляем с пагинацией
+            if donations_data['count'] > 20:
+                self._send_donations_paginated(update, donations_data)
+            else:
+                text = self._format_donations_table(donations_data)
+                update.message.reply_text(text, parse_mode=ParseMode.HTML)
+
+        except Exception as e:
+            logger.error(f"Error in show_donations_full: {e}")
+            update.message.reply_text("❌ Ошибка при получении данных")
+
+    def _format_donations_table(self, donations_data):
+        """Форматировать таблицу донатов"""
+        text = "🎁 *ПОЛНАЯ СТАТИСТИКА ДОНАТОВ КЛАНА*\n\n"
+        text += "<pre>"
+        text += "Ранг | Имя           | Пожертв. | Получ. | Баланс | %\n"
+        text += "─────┼───────────────┼──────────┼────────┼────────┼─────\n"
+
+        for i, member in enumerate(donations_data['members'], 1):
+            name = member.get('name', 'Unknown')[:13]
+            donated = member.get('donations', 0)
+            received = member.get('donationsReceived', 0)
+            balance = donated - received
+            percent = (donated / donations_data['total_donations'] * 100) if donations_data['total_donations'] > 0 else 0
+
+            text += f"{i:3} | {name:13} | {donated:8} | {received:6} | {balance:+6} | {percent:4.1f}%\n"
+
+        text += "</pre>\n\n"
+        text += f"📊 *СВОДКА:*\n"
+        text += f"• Всего пожертвовано: {donations_data['total_donations']:,} карт\n"
+        text += f"• Всего получено: {donations_data['total_received']:,} карт\n"
+        text += f"• Среднее на игрока: {donations_data['average_donations']:,} / {donations_data['average_received']:,}\n"
+
+        return text
+
+    def _send_donations_paginated(self, update, donations_data):
+        """Отправить таблицу пагинацией (по 15 игроков)"""
+        PAGE_SIZE = 15
+        members = donations_data['members']
+        total_pages = (len(members) + PAGE_SIZE - 1) // PAGE_SIZE
+
+        for page in range(total_pages):
+            start = page * PAGE_SIZE
+            end = min(start + PAGE_SIZE, len(members))
+
+            text = f"🎁 *СТАТИСТИКА ДОНАТОВ* (страница {page+1}/{total_pages})\n\n"
+            text += "<pre>"
+            text += "Ранг | Имя           | Пожертв. | Получ. | Баланс | %\n"
+            text += "─────┼───────────────┼──────────┼────────┼────────┼─────\n"
+
+            for i in range(start, end):
+                member = members[i]
+                name = member.get('name', 'Unknown')[:13]
+                donated = member.get('donations', 0)
+                received = member.get('donationsReceived', 0)
+                balance = donated - received
+                percent = (donated / donations_data['total_donations'] * 100) if donations_data['total_donations'] > 0 else 0
+
+                text += f"{i+1:3} | {name:13} | {donated:8} | {received:6} | {balance:+6} | {percent:4.1f}%\n"
+
+            text += "</pre>\n"
+            update.message.reply_text(text, parse_mode=ParseMode.HTML)
+
+    def show_war_stats(self, update: Update, context: CallbackContext):
+        """Показать рейтинг участников войны"""
+        war_data = api.get_current_war(Config.CLAN_TAG)
+        if not war_data:
+            update.message.reply_text("❌ Нет текущей войны")
+            return
+
+        stats = api.format_war_stats(war_data)
+        if not stats:
+            update.message.reply_text("❌ Нет данных")
+            return
+
+        text = "🏆 *СТАТИСТИКА ВОЙНЫ:*\n\n"
+
+        for i, p in enumerate(stats['participants'], 1):
+            name = p.get('name', '?')
+            score = p.get('cardsEarned', 0)
+            battles = p.get('battlesPlayed', 0)
+            wins = p.get('wins', 0)
+            total = p.get('numberOfBattles', battles) if battles else 1
+            percent = (battles / total * 100) if total > 0 else 0
+
+            text += f"{i}. {name} | {score} очков | {battles}/{total} ({percent:.0f}%)\n"
+
+        text += f"\n📊 Всего очков: {stats['total_score']}"
+
+        update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+
     def run(self):
         """Run the bot"""
         logger.info("Bot starting...")
         
-        if self.webhook_url:
-            logger.info(f"Bot running with webhook on {self.webhook_url}")
-            self.updater.idle()
-        else:
-            logger.info("Bot running with polling")
-            self.updater.idle()
+        try:
+            if self.webhook_url:
+                logger.info(f"Bot running with webhook on {self.webhook_url}")
+                self.updater.idle()
+            else:
+                logger.info("Bot running with polling")
+                self.updater.idle()
+        except Exception as e:
+            if "Conflict" in str(e) or "terminated by other getUpdates request" in str(e):
+                logger.warning("⚠️ Bot instance conflict detected. Another instance may be running.")
+                logger.warning("If this is unexpected, stop other instances and restart.")
+            else:
+                logger.error(f"Unexpected error in bot run: {e}")
+            raise
 
 def main():
     """Main function"""
