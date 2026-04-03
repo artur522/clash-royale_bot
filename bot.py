@@ -3346,15 +3346,6 @@ class ClanBot:
         
         update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
     
-    def _escape_markdown(self, text):
-        """Экранировать спецсимволы для markdown"""
-        if not text:
-            return text
-        chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-        for char in chars:
-            text = text.replace(char, f'\\{char}')
-        return text
-
     def show_river_race(self, update: Update, context: CallbackContext):
         """Показать текущую речную гонку"""
         if not self.is_group_chat(update):
@@ -3370,29 +3361,28 @@ class ClanBot:
         participants = clan_data.get('participants', [])
         clans = race.get('clans', [])
 
-        clan_name = self._escape_markdown(clan_data.get('name', 'N/A'))
-        text = f"🏞️ *Речная гонка: {clan_name}*\n\n"
+        text = f"🏞️ Речная гонка: {clan_data.get('name', 'N/A')}\n\n"
         text += f"🏆 Очки клана: {clan_data.get('clanScore', 0)}\n"
         text += f"💎 Фейм: {clan_data.get('fame', 0)}\n"
         text += f"🔧 Ремонт: {clan_data.get('repairPoints', 0)}\n\n"
 
         # Участники клана
-        text += "👥 *Участники клана:*\n"
+        text += "👥 Участники клана:\n"
         for p in participants[:10]:  # Ограничим до 10 для читаемости
-            player_name = self._escape_markdown(p.get('name', 'N/A'))
-            text += f"• {player_name}: {p.get('boatAttacks', 0)} атак, {p.get('fame', 0)} фейм\n"
+            name = p.get('name', 'N/A').replace('\\', '')
+            text += f"• {name}: {p.get('boatAttacks', 0)} атак, {p.get('fame', 0)} фейм\n"
         if len(participants) > 10:
             text += f"... и ещё {len(participants) - 10} участников\n"
         text += "\n"
 
         # Другие кланы
-        text += "🏰 *Другие кланы в гонке:*\n"
+        text += "🏰 Другие кланы в гонке:\n"
         for c in clans[:5]:  # Топ 5 других кланов
             if c.get('tag') != Config.CLAN_TAG:
-                other_clan_name = self._escape_markdown(c.get('name', 'N/A'))
-                text += f"• {other_clan_name}: {c.get('clanScore', 0)} очков, {c.get('fame', 0)} фейм\n"
+                name = c.get('name', 'N/A').replace('\\', '')
+                text += f"• {name}: {c.get('clanScore', 0)} очков, {c.get('fame', 0)} фейм\n"
 
-        update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+        update.message.reply_text(text)
     
     def search_tournaments(self, update: Update, context: CallbackContext):
         """Поиск турниров"""
