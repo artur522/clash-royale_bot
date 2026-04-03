@@ -304,7 +304,6 @@ class ClanBot:
                 InlineKeyboardButton("🏰 Мой клан", callback_data="my_clan")
             ],
             [
-                InlineKeyboardButton("🎁 Мои сундуки", callback_data="my_chests"),
                 InlineKeyboardButton("⚔️ Мои бои", callback_data="my_battles")
             ],
             [
@@ -1412,10 +1411,9 @@ class ClanBot:
             return
         
         stats_text = api.format_player_stats(player_data)
-        
+
         keyboard = [
             [
-                InlineKeyboardButton("🎁 Мои сундуки", callback_data="my_chests"),
                 InlineKeyboardButton("⚔️ Мои бои", callback_data="my_battles")
             ],
             [
@@ -2143,52 +2141,6 @@ class ClanBot:
         
         update.message.reply_text(rules_text, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(keyboard))
     
-    def show_chests(self, update: Update, context: CallbackContext):
-        user_id = update.effective_user.id
-        db_user = db.get_user_by_telegram_id(user_id)
-        
-        if not db_user:
-            update.message.reply_text(
-                "❌ *Вы не зарегистрированы.*\n\n"
-                "Используйте /register для привязки вашего тега.",
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-        
-        chests = api.get_player_chests(db_user['cr_tag'])
-        
-        if not chests or 'items' not in chests:
-            update.message.reply_text("❌ Не удалось получить информацию о сундуках.")
-            return
-        
-        chests_text = f"🎁 *Ваши предстоящие сундуки:*\n\n"
-        
-        for i, chest in enumerate(chests['items'][:10], 1):
-            name = chest.get('name', 'Неизвестный сундук')
-            index = chest.get('index', 0)
-            
-            emoji = {
-                'Silver': '🥈',
-                'Gold': '🥇',
-                'Giant': '💎',
-                'Magical': '✨',
-                'Epic': '⚡',
-                'Legendary': '👑',
-                'Mega Lightning': '⚡⚡',
-                'Crown': '👑'
-            }.get(name.split()[0], '🎁')
-            
-            chests_text += f"{i}. {emoji} {name}\n"
-            chests_text += f"   ⏳ Через *{index}* боев\n\n"
-        
-        keyboard = [
-            [InlineKeyboardButton("🔄 Обновить", callback_data="my_chests")],
-            [InlineKeyboardButton("📊 Моя статистика", callback_data="my_stats")],
-            [InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]
-        ]
-        
-        update.message.reply_text(chests_text, parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(keyboard))
-    
     def show_battles(self, update: Update, context: CallbackContext):
         user_id = update.effective_user.id
         db_user = db.get_user_by_telegram_id(user_id)
@@ -2229,10 +2181,9 @@ class ClanBot:
             battles_text += f"{i}. *{mode}*\n"
             battles_text += f"   {result} {team_crowns}-{opp_crowns}\n"
             battles_text += f"   🕐 {battle_time}\n\n"
-        
+
         keyboard = [
             [InlineKeyboardButton("🔄 Обновить", callback_data="my_battles")],
-            [InlineKeyboardButton("🎁 Мои сундуки", callback_data="my_chests")],
             [InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]
         ]
         
@@ -2383,8 +2334,6 @@ class ClanBot:
             self.stats(update, context)
         elif text == '🏰 Информация о клане':
             self.clan_info(update, context)
-        elif text == '🎁 Мои сундуки':
-            self.show_chests(update, context)
         elif text == '⚔️ История боев':
             self.show_battles(update, context)
         elif text == '❓ Помощь':
@@ -2421,8 +2370,6 @@ class ClanBot:
         # Статистика
         elif data == 'my_stats':
             self.stats_callback(update, context)
-        elif data == 'my_chests':
-            self.show_chests_callback(update, context)
         elif data == 'my_battles':
             self.show_battles_callback(update, context)
         elif data == 'refresh_stats':
@@ -2886,36 +2833,6 @@ class ClanBot:
         
         # Вызываем оригинальный метод
         self.show_rules(fake_update, context)
-    
-    def show_chests_callback(self, update: Update, context: CallbackContext):
-        """Callback версия show_chests"""
-        query = update.callback_query
-        query.answer()
-        
-        # Создаем искусственный update с сообщением
-        from telegram import Message, Chat, User
-        
-        fake_update = Update(
-            update_id=update.update_id,
-            message=Message(
-                message_id=query.message.message_id,
-                date=query.message.date,
-                chat=Chat(
-                    id=query.message.chat.id,
-                    type=query.message.chat.type,
-                    title=query.message.chat.title if hasattr(query.message.chat, 'title') else None
-                ),
-                from_user=User(
-                    id=query.from_user.id,
-                    first_name=query.from_user.first_name,
-                    is_bot=query.from_user.is_bot,
-                    username=query.from_user.username
-                )
-            )
-        )
-        
-        # Вызываем оригинальный метод
-        self.show_chests(fake_update, context)
     
     def show_battles_callback(self, update: Update, context: CallbackContext):
         """Callback версия show_battles"""
