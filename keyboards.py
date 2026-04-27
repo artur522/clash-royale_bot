@@ -94,7 +94,10 @@ class Keyboards:
                 InlineKeyboardButton("🏞️ Проверить речную гонку", callback_data="admin_river_check")
             ],
             [
-                InlineKeyboardButton("⚙️ Настройки чата", callback_data="admin_settings"),
+                InlineKeyboardButton("🎲 Розыгрыш", callback_data="admin_raffle"),
+                InlineKeyboardButton("⚙️ Настройки чата", callback_data="admin_settings")
+            ],
+            [
                 InlineKeyboardButton("📈 Статистика", callback_data="admin_stats")
             ]
         ]

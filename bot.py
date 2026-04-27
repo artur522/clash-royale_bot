@@ -78,6 +78,9 @@ class ClanBot:
 
         # Admin commands
         self.dispatcher.add_handler(CommandHandler("admin", self.admin_panel))
+        self.dispatcher.add_handler(CommandHandler("assign_numbers", self.assign_raffle_numbers))
+        self.dispatcher.add_handler(CommandHandler("draw_prize", self.draw_prize))
+        self.dispatcher.add_handler(CommandHandler("my_number", self.show_my_number))
 
         # Utility commands
         self.dispatcher.add_handler(CommandHandler("battles", self.show_battles))
@@ -1893,6 +1896,151 @@ class ClanBot:
         
         update.message.reply_text(warning_text, parse_mode=ParseMode.MARKDOWN)
     
+    def assign_raffle_numbers(self, update: Update, context: CallbackContext):
+        if not self.is_group_chat(update):
+            update.message.reply_text("Эта команда работает только в групповом чате.")
+            return
+        
+        user_id = update.effective_user.id
+        if not self.is_admin(user_id):
+            update.message.reply_text("❌ Только админы могут присваивать номера для розыгрыша.")
+            return
+        
+        chat_id = update.effective_chat.id
+        
+        # For now, let's assign numbers to all registered users
+        # In a real implementation, you'd want to filter by chat members only
+        try:
+            # Get all registered users (assuming they are chat participants)
+            # In practice, you might want to collect chat members differently
+            with db.get_cursor() as cursor:
+                cursor.execute('SELECT telegram_id, username, cr_tag FROM users WHERE telegram_id > 0')
+                all_users = cursor.fetchall()
+            
+            if not all_users:
+                update.message.reply_text("❌ Нет зарегистрированных пользователей.")
+                return
+            
+            # Shuffle the users to randomize
+            import random
+            random.shuffle(all_users)
+            
+            # Assign sequential numbers starting from 1
+            user_numbers = {}
+            for i, user in enumerate(all_users, 1):
+                user_numbers[user['telegram_id']] = i
+            
+            # Save to database
+            success = db.assign_raffle_numbers(chat_id, user_numbers)
+            
+            if success:
+                participants_count = len(user_numbers)
+                
+                # Create a message with all participants and their numbers
+                numbers_message = f"🎲 *СПИСОК УЧАСТНИКОВ РОЗЫГРЫША*\n\n"
+                for user in all_users:
+                    number = user_numbers[user['telegram_id']]
+                    username = user.get('username', 'Неизвестен')
+                    numbers_message += f"#{number} - @{username}\n"
+                
+                numbers_message += f"\nВсего участников: {participants_count}"
+                
+                # Send the list to chat
+                update.message.reply_text(numbers_message, parse_mode=ParseMode.MARKDOWN)
+                
+                # Send confirmation to admin
+                update.message.reply_text(
+                    f"✅ Номера присвоены {participants_count} участникам!\n\n"
+                    f"Используйте `/draw_prize` для проведения розыгрыша.",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            else:
+                update.message.reply_text("❌ Ошибка при сохранении номеров.")
+                
+        except Exception as e:
+            logger.error(f"Error assigning raffle numbers: {e}")
+            update.message.reply_text("❌ Ошибка при присвоении номеров.")
+            
+            # Save to database
+            success = db.assign_raffle_numbers(chat_id, user_numbers)
+            
+            if success:
+                participants_count = len(user_numbers)
+                update.message.reply_text(
+                    f"🎲 *Номера присвоены!*\n\n"
+                    f"✅ Участникам розыгрыша присвоены номера от 1 до {participants_count}.\n\n"
+                    f"Используйте `/draw_prize` для проведения розыгрыша.",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            else:
+                update.message.reply_text("❌ Ошибка при сохранении номеров.")
+                
+        except Exception as e:
+            logger.error(f"Error assigning raffle numbers: {e}")
+            update.message.reply_text("❌ Ошибка при присвоении номеров.")
+    
+    def draw_prize(self, update: Update, context: CallbackContext):
+        if not self.is_group_chat(update):
+            update.message.reply_text("Эта команда работает только в групповом чате.")
+            return
+        
+        user_id = update.effective_user.id
+        if not self.is_admin(user_id):
+            update.message.reply_text("❌ Только админы могут проводить розыгрыш.")
+            return
+        
+        chat_id = update.effective_chat.id
+        
+        # Get current raffle numbers
+        raffle_data = db.get_raffle_numbers(chat_id)
+        
+        if not raffle_data:
+            update.message.reply_text(
+                "🎲 *Розыгрыш приза*\n\n"
+                "❌ Номера еще не присвоены участникам.\n\n"
+                "Используйте `/assign_numbers` для присвоения номеров.",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        import random
+        winner = random.choice(raffle_data)
+        
+        winner_text = (
+            f"🎉 *ПОЗДРАВЛЯЕМ ПОБЕДИТЕЛЯ!*\n\n"
+            f"🏆 *Номер:* {winner['number']}\n"
+            f"👤 *Пользователь:* @{winner.get('username', 'Неизвестен')}\n"
+            f"🏷️ *Тег:* {winner.get('cr_tag', 'Не зарегистрирован')}\n\n"
+            f"🎊 Поздравляем с победой!"
+        )
+        
+        update.message.reply_text(winner_text, parse_mode=ParseMode.MARKDOWN)
+    
+    def show_my_number(self, update: Update, context: CallbackContext):
+        """Show user's raffle number"""
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+        
+        # Get user's raffle number for this chat
+        with db.get_cursor() as cursor:
+            cursor.execute('''
+                SELECT number FROM raffle_numbers 
+                WHERE chat_id = %s AND user_id = %s
+            ''', (chat_id, user_id))
+            result = cursor.fetchone()
+        
+        if result:
+            number = result['number']
+            update.message.reply_text(
+                f"🎲 Ваш номер в розыгрыше: *#{number}*",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            update.message.reply_text(
+                "❌ Вы не участвуете в текущем розыгрыше.\n\n"
+                "Используйте `/assign_numbers` для присвоения номеров или зарегистрируйтесь в боте."
+            )
+    
     def remind_war(self, update: Update, context: CallbackContext):
         if not self.is_group_chat(update):
             update.message.reply_text("Эта команда работает только в групповом чате.")
@@ -2444,6 +2592,20 @@ class ClanBot:
                 self.admin_panel_callback(update, context)
             elif admin_action == 'river_check':
                 self.manual_river_check_callback(update, context)
+            elif admin_action == 'raffle':
+                self.raffle_menu_callback(update, context)
+        
+        # Розыгрыш
+        elif data.startswith('raffle_'):
+            raffle_action = data.replace('raffle_', '')
+            if raffle_action == 'draw':
+                self.raffle_draw_callback(update, context)
+            elif raffle_action == 'list':
+                self.raffle_list_callback(update, context)
+            elif raffle_action == 'assign':
+                self.raffle_assign_callback(update, context)
+            elif raffle_action == 'clear':
+                self.raffle_clear_callback(update, context)
         
         # Регистрация
         elif data == 'find_tag_help':
@@ -3677,6 +3839,179 @@ class ClanBot:
         text += f"\n📊 Всего очков: {stats['total_score']}"
 
         update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+
+    def raffle_menu_callback(self, update: Update, context: CallbackContext):
+        """Callback for raffle menu"""
+        query = update.callback_query
+        query.answer()
+        
+        chat_id = query.message.chat.id
+        raffle_data = db.get_raffle_numbers(chat_id)
+        participants_count = len(raffle_data) if raffle_data else 0
+        
+        text = "🎲 *Меню розыгрыша*\n\n"
+        
+        if participants_count > 0:
+            text += f"✅ Номера присвоены {participants_count} участникам.\n\n"
+            text += "Выберите действие:"
+        else:
+            text += "❌ Номера еще не присвоены.\n\n"
+            text += "Сначала присвойте номера участникам."
+        
+        keyboard = []
+        if participants_count > 0:
+            keyboard.append([
+                InlineKeyboardButton("🎉 Провести розыгрыш", callback_data="raffle_draw"),
+                InlineKeyboardButton("📋 Список участников", callback_data="raffle_list")
+            ])
+        
+        keyboard.append([
+            InlineKeyboardButton("🔄 Присвоить номера", callback_data="raffle_assign"),
+            InlineKeyboardButton("🗑️ Очистить номера", callback_data="raffle_clear")
+        ])
+        
+        keyboard.append([
+            InlineKeyboardButton("⬅️ Назад", callback_data="admin_panel")
+        ])
+        
+        query.edit_message_text(
+            text,
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    def raffle_draw_callback(self, update: Update, context: CallbackContext):
+        """Draw a raffle winner"""
+        query = update.callback_query
+        query.answer()
+        
+        user_id = query.from_user.id
+        if not self.is_admin(user_id):
+            query.answer("❌ Нет прав", show_alert=True)
+            return
+        
+        chat_id = query.message.chat.id
+        raffle_data = db.get_raffle_numbers(chat_id)
+        
+        if not raffle_data:
+            query.edit_message_text("❌ Номера не присвоены.")
+            return
+        
+        import random
+        winner = random.choice(raffle_data)
+        
+        winner_text = (
+            f"🎉 *ПОЗДРАВЛЯЕМ ПОБЕДИТЕЛЯ!*\n\n"
+            f"🏆 *Номер:* {winner['number']}\n"
+            f"👤 *Пользователь:* @{winner.get('username', 'Неизвестен')}\n"
+            f"🏷️ *Тег:* {winner.get('cr_tag', 'Не зарегистрирован')}\n\n"
+            f"🎊 Поздравляем с победой!"
+        )
+        
+        query.edit_message_text(winner_text, parse_mode=ParseMode.MARKDOWN)
+
+    def raffle_list_callback(self, update: Update, context: CallbackContext):
+        """Show list of raffle participants"""
+        query = update.callback_query
+        query.answer()
+        
+        chat_id = query.message.chat.id
+        raffle_data = db.get_raffle_numbers(chat_id)
+        
+        if not raffle_data:
+            query.edit_message_text("❌ Номера не присвоены.")
+            return
+        
+        text = "📋 *Список участников розыгрыша*\n\n"
+        for participant in raffle_data:
+            username = participant.get('username', 'Неизвестен')
+            cr_tag = participant.get('cr_tag', 'Не зарегистрирован')
+            text += f"#{participant['number']} - @{username} ({cr_tag})\n"
+        
+        text += f"\nВсего участников: {len(raffle_data)}"
+        
+        query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN)
+
+    def raffle_assign_callback(self, update: Update, context: CallbackContext):
+        """Assign raffle numbers"""
+        query = update.callback_query
+        query.answer()
+        
+        user_id = query.from_user.id
+        if not self.is_admin(user_id):
+            query.answer("❌ Нет прав", show_alert=True)
+            return
+        
+        chat_id = query.message.chat.id
+        
+        # Get all registered users (assuming they are chat participants)
+        with db.get_cursor() as cursor:
+            cursor.execute('SELECT telegram_id, username, cr_tag FROM users WHERE telegram_id > 0')
+            all_users = cursor.fetchall()
+        
+        if not all_users:
+            query.edit_message_text("❌ Нет зарегистрированных пользователей.")
+            return
+        
+        import random
+        random.shuffle(all_users)
+        
+        user_numbers = {}
+        for i, user in enumerate(all_users, 1):
+            user_numbers[user['telegram_id']] = i
+        
+        success = db.assign_raffle_numbers(chat_id, user_numbers)
+        
+        if success:
+            participants_count = len(user_numbers)
+            
+            # Create a message with all participants and their numbers
+            numbers_message = f"🎲 *СПИСОК УЧАСТНИКОВ РОЗЫГРЫША*\n\n"
+            for user in all_users:
+                number = user_numbers[user['telegram_id']]
+                username = user.get('username', 'Неизвестен')
+                numbers_message += f"#{number} - @{username}\n"
+            
+            numbers_message += f"\nВсего участников: {participants_count}"
+            
+            # Send the list to chat
+            context.bot.send_message(
+                chat_id=chat_id,
+                text=numbers_message,
+                parse_mode=ParseMode.MARKDOWN
+            )
+            
+            text = (
+                f"🎲 *Номера присвоены!*\n\n"
+                f"✅ {participants_count} участникам присвоены номера от 1 до {participants_count}.\n\n"
+                f"Список номеров отправлен в чат.\n"
+                f"Используйте 'Провести розыгрыш' для выбора победителя."
+            )
+        else:
+            text = "❌ Ошибка при присвоении номеров."
+        
+        query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN)
+
+    def raffle_clear_callback(self, update: Update, context: CallbackContext):
+        """Clear raffle numbers"""
+        query = update.callback_query
+        query.answer()
+        
+        user_id = query.from_user.id
+        if not self.is_admin(user_id):
+            query.answer("❌ Нет прав", show_alert=True)
+            return
+        
+        chat_id = query.message.chat.id
+        
+        success = db.clear_raffle_numbers(chat_id)
+        
+        if success:
+            text = "🗑️ *Номера очищены*\n\nВсе номера участников розыгрыша удалены."
+        else:
+            text = "❌ Ошибка при очистке номеров."
+        
+        query.edit_message_text(text, parse_mode=ParseMode.MARKDOWN)
 
     def run(self):
         """Run the bot"""

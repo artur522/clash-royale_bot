@@ -135,10 +135,24 @@ class Database:
                     )
                 ''')
                 
+                # Raffle numbers
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS raffle_numbers (
+                        id SERIAL PRIMARY KEY,
+                        chat_id BIGINT NOT NULL,
+                        user_id BIGINT NOT NULL,
+                        number INTEGER NOT NULL,
+                        assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(chat_id, user_id),
+                        UNIQUE(chat_id, number)
+                    )
+                ''')
+                
                 # Indexes
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_cr_tag ON users(cr_tag)')
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_telegram ON users(telegram_id)')
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_activity_cr_tag ON player_activity(cr_tag)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_raffle_chat ON raffle_numbers(chat_id)')
                 
                 # Initialize admin user
                 self._init_admin_user(cursor)
@@ -297,3 +311,62 @@ class Database:
         except Exception as e:
             logger.error(f"Get bot stats error: {e}")
             return {}
+    
+    # Raffle methods
+    def assign_raffle_numbers(self, chat_id, user_numbers):
+        """Assign raffle numbers to users in a chat. user_numbers is dict {user_id: number}"""
+        try:
+            with self.get_cursor() as cursor:
+                # Clear existing numbers for this chat
+                cursor.execute('DELETE FROM raffle_numbers WHERE chat_id = %s', (chat_id,))
+                
+                # Insert new numbers
+                for user_id, number in user_numbers.items():
+                    cursor.execute('''
+                        INSERT INTO raffle_numbers (chat_id, user_id, number)
+                        VALUES (%s, %s, %s)
+                    ''', (chat_id, user_id, number))
+                
+                logger.info(f"Assigned raffle numbers for chat {chat_id}: {len(user_numbers)} participants")
+                return True
+        except Exception as e:
+            logger.error(f"Assign raffle numbers error: {e}")
+            return False
+    
+    def get_raffle_numbers(self, chat_id):
+        """Get all raffle numbers for a chat"""
+        try:
+            with self.get_cursor() as cursor:
+                cursor.execute('''
+                    SELECT rn.user_id, rn.number, u.username, u.cr_tag
+                    FROM raffle_numbers rn
+                    LEFT JOIN users u ON rn.user_id = u.telegram_id
+                    WHERE rn.chat_id = %s
+                    ORDER BY rn.number
+                ''', (chat_id,))
+                return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Get raffle numbers error: {e}")
+            return []
+    
+    def clear_raffle_numbers(self, chat_id):
+        """Clear all raffle numbers for a chat"""
+        try:
+            with self.get_cursor() as cursor:
+                cursor.execute('DELETE FROM raffle_numbers WHERE chat_id = %s', (chat_id,))
+                logger.info(f"Cleared raffle numbers for chat {chat_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Clear raffle numbers error: {e}")
+            return False
+    
+    def get_raffle_participants_count(self, chat_id):
+        """Get count of participants with raffle numbers"""
+        try:
+            with self.get_cursor() as cursor:
+                cursor.execute('SELECT COUNT(*) as count FROM raffle_numbers WHERE chat_id = %s', (chat_id,))
+                result = cursor.fetchone()
+                return result['count'] if result else 0
+        except Exception as e:
+            logger.error(f"Get raffle participants count error: {e}")
+            return 0
